@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch server/app.ts",
-    "build:server": "tsc --project tsconfig.server.json",
+    "build:server": "tsc server/app.ts --outDir dist --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --allowSyntheticDefaultImports",
     "build:frontend": "vite build",
     "build": "npm run build:frontend && npm run build:server",
     "start": "node dist/app.js",
