@@ -9,20 +9,20 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 // Importar rotas
-import authRoutes from './routes/auth';
-import userRoutes from './routes/users';
-import categoryRoutes from './routes/categories';
-import revenueRoutes from './routes/revenues';
-import expenseRoutes from './routes/expenses';
-import reportRoutes from './routes/reports';
-import productRoutes from './routes/products';
-import salesRoutes from './routes/sales';
-import clientRoutes from './routes/clients';
-import taskRoutes from './routes/tasks';
-import commissionRoutes from './routes/commissions';
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
+import categoryRoutes from './routes/categories.js';
+import revenueRoutes from './routes/revenues.js';
+import expenseRoutes from './routes/expenses.js';
+import reportRoutes from './routes/reports.js';
+import productRoutes from './routes/products.js';
+import salesRoutes from './routes/sales.js';
+import clientRoutes from './routes/clients.js';
+import taskRoutes from './routes/tasks.js';
+import commissionRoutes from './routes/commissions.js';
 
 // Importar logger
-import logger from './config/logger';
+import logger from './config/logger.js';
 
 // Carregar variáveis de ambiente
 dotenv.config();

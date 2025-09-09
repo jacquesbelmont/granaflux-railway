@@ -1,9 +1,11 @@
-import express from 'express';
+// server/routes/auth.ts
+import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import logger from '../config/logger';
+import prisma from '../config/database.js';
+import logger from '../config/logger.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -13,7 +15,7 @@ router.post('/register', [
   body('password').isLength({ min: 6 }).withMessage('Senha deve ter pelo menos 6 caracteres'),
   body('name').notEmpty().withMessage('Nome é obrigatório'),
   body('companyName').notEmpty().withMessage('Nome da empresa é obrigatório')
-], async (req, res) => {
+], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -35,7 +37,7 @@ router.post('/register', [
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Criar empresa e usuário
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const company = await tx.company.create({
         data: {
           name: companyName,
@@ -73,17 +75,21 @@ router.post('/register', [
       return user;
     });
 
-    // Gerar token
-    const token = jwt.sign(
-      { userId: result.id },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
+// Gerar token
+if (!process.env.JWT_SECRET || !process.env.JWT_EXPIRES_IN) {
+  logger.error('Variáveis de ambiente JWT_SECRET ou JWT_EXPIRES_IN não definidas.');
+  throw new Error('Configuração de autenticação do servidor incompleta.');
+}
 
-    logger.info('Novo usuário registrado', { 
-      userId: result.id, 
-      email: result.email, 
-      companyId: result.companyId 
+const token = jwt.sign(
+  { userId: result.id },
+  process.env.JWT_SECRET,
+  { expiresIn: process.env.JWT_EXPIRES_IN }
+);
+    logger.info('Novo usuário registrado', {
+      userId: result.id,
+      email: result.email,
+      companyId: result.companyId
     });
 
     res.status(201).json({
@@ -107,7 +113,7 @@ router.post('/register', [
 router.post('/login', [
   body('email').isEmail().withMessage('Email inválido'),
   body('password').notEmpty().withMessage('Senha é obrigatória')
-], async (req, res) => {
+], async (req: Request, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -134,12 +140,17 @@ router.post('/login', [
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    // Gerar token
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
+// Gerar token
+if (!process.env.JWT_SECRET || !process.env.JWT_EXPIRES_IN) {
+    logger.error('Variáveis de ambiente JWT_SECRET ou JWT_EXPIRES_IN não definidas.');
+    throw new Error('Configuração de autenticação do servidor incompleta.');
+}
+
+const token = jwt.sign(
+  { userId: user.id },
+  process.env.JWT_SECRET,
+  { expiresIn: process.env.JWT_EXPIRES_IN }
+);
 
     logger.info('Login realizado com sucesso', { userId: user.id, email });
 
