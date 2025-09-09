@@ -12,14 +12,14 @@ const router = express.Router();
 type ProcessedItem = {
   productId: string | null;
   itemName: string;
-  description?: string;
+  description?: string | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
 };
 
 type SellerStats = {
-  seller: Partial<User>;
+  seller: { id: string; name: string; email: string; };
   totalSales: number;
   salesCount: number;
   totalCommissions: number;

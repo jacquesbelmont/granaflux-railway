@@ -1,10 +1,17 @@
+// server/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database.js';
 import logger from '../config/logger.js';
+import { User, Company } from '@prisma/client';
 
-interface AuthRequest extends Request {
-  user?: any;
+interface JwtPayload {
+  userId: string; // O ID no JWT geralmente é uma string
+}
+
+// A CORREÇÃO CRÍTICA ESTÁ AQUI: a palavra "export"
+export interface AuthRequest extends Request {
+  user?: User & { company: Company | null };
 }
 
 export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -17,7 +24,8 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       include: { company: true }
@@ -39,10 +47,10 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
 export const requireRole = (roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      logger.warn('Acesso negado por role', { 
-        userId: req.user?.id, 
-        userRole: req.user?.role, 
-        requiredRoles: roles 
+      logger.warn('Acesso negado por role', {
+        userId: req.user?.id,
+        userRole: req.user?.role,
+        requiredRoles: roles
       });
       return res.status(403).json({ error: 'Acesso negado' });
     }

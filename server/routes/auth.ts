@@ -24,7 +24,6 @@ router.post('/register', [
 
     const { email, password, name, companyName, cnpj } = req.body;
 
-    // Verificar se usuário já existe
     const existingUser = await prisma.user.findUnique({
       where: { email }
     });
@@ -33,10 +32,8 @@ router.post('/register', [
       return res.status(400).json({ error: 'Email já está em uso' });
     }
 
-    // Hash da senha
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Criar empresa e usuário
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const company = await tx.company.create({
         data: {
@@ -58,34 +55,31 @@ router.post('/register', [
         }
       });
 
-      // Criar categorias padrão
       await tx.category.createMany({
         data: [
-          { name: 'Vendas', type: 'REVENUE', companyId: company.id, color: '#10B981' },
-          { name: 'Serviços', type: 'REVENUE', companyId: company.id, color: '#3B82F6' },
-          { name: 'Folha de Pagamento', type: 'EXPENSE', companyId: company.id, color: '#EF4444' },
-          { name: 'Fornecedores', type: 'EXPENSE', companyId: company.id, color: '#F59E0B' },
-          { name: 'Marketing', type: 'EXPENSE', companyId: company.id, color: '#8B5CF6' },
-          { name: 'Aluguel', type: 'EXPENSE', companyId: company.id, color: '#6B7280' },
-          { name: 'Impostos', type: 'EXPENSE', companyId: company.id, color: '#DC2626' },
-          { name: 'Matéria Prima', type: 'EXPENSE', companyId: company.id, color: '#059669' }
+            { name: 'Vendas', type: 'REVENUE', companyId: company.id, color: '#10B981' },
+            { name: 'Serviços', type: 'REVENUE', companyId: company.id, color: '#3B82F6' },
+            { name: 'Folha de Pagamento', type: 'EXPENSE', companyId: company.id, color: '#EF4444' },
+            { name: 'Fornecedores', type: 'EXPENSE', companyId: company.id, color: '#F59E0B' },
+            { name: 'Marketing', type: 'EXPENSE', companyId: company.id, color: '#8B5CF6' },
+            { name: 'Aluguel', type: 'EXPENSE', companyId: company.id, color: '#6B7280' },
+            { name: 'Impostos', type: 'EXPENSE', companyId: company.id, color: '#DC2626' },
+            { name: 'Matéria Prima', type: 'EXPENSE', companyId: company.id, color: '#059669' }
         ]
       });
 
       return user;
     });
 
-// Gerar token
-if (!process.env.JWT_SECRET || !process.env.JWT_EXPIRES_IN) {
-  logger.error('Variáveis de ambiente JWT_SECRET ou JWT_EXPIRES_IN não definidas.');
-  throw new Error('Configuração de autenticação do servidor incompleta.');
-}
+    // Gerar token - Bloco movido para o lugar correto e com validação
+    const secret = process.env.JWT_SECRET;
+    const expiresIn = process.env.JWT_EXPIRES_IN;
+    if (!secret || !expiresIn) {
+      logger.error('Variáveis de ambiente JWT não definidas.');
+      throw new Error('Configuração de autenticação do servidor incompleta.');
+    }
+    const token = jwt.sign({ userId: result.id }, secret, { expiresIn });
 
-const token = jwt.sign(
-  { userId: result.id },
-  process.env.JWT_SECRET,
-  { expiresIn: process.env.JWT_EXPIRES_IN }
-);
     logger.info('Novo usuário registrado', {
       userId: result.id,
       email: result.email,
@@ -122,7 +116,6 @@ router.post('/login', [
 
     const { email, password } = req.body;
 
-    // Buscar usuário
     const user = await prisma.user.findUnique({
       where: { email },
       include: { company: true }
@@ -133,24 +126,20 @@ router.post('/login', [
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-    // Verificar senha
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
       logger.warn('Tentativa de login com senha incorreta', { email });
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
 
-// Gerar token
-if (!process.env.JWT_SECRET || !process.env.JWT_EXPIRES_IN) {
-    logger.error('Variáveis de ambiente JWT_SECRET ou JWT_EXPIRES_IN não definidas.');
-    throw new Error('Configuração de autenticação do servidor incompleta.');
-}
-
-const token = jwt.sign(
-  { userId: user.id },
-  process.env.JWT_SECRET,
-  { expiresIn: process.env.JWT_EXPIRES_IN }
-);
+    // Gerar token - Bloco com validação
+    const secret = process.env.JWT_SECRET;
+    const expiresIn = process.env.JWT_EXPIRES_IN;
+    if (!secret || !expiresIn) {
+      logger.error('Variáveis de ambiente JWT não definidas.');
+      throw new Error('Configuração de autenticação do servidor incompleta.');
+    }
+    const token = jwt.sign({ userId: user.id }, secret, { expiresIn });
 
     logger.info('Login realizado com sucesso', { userId: user.id, email });
 
