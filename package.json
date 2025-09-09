@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch server/app.ts",
-    "build:server": "tsc server/app.ts --outDir dist",
-    "start:server": "node dist/app.js",
+    "build:server": "tsc --project tsconfig.server.json",
+    "build:frontend": "vite build",
     "build": "vite build",
+    "start": "node dist/server/app.js",
+    "postinstall": "npx prisma generate",
     "lint": "eslint .",
     "preview": "vite preview",
     "db:generate": "prisma generate",

@@ -6,25 +6,30 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 // Importar rotas
-import authRoutes from './routes/auth.js';
-import userRoutes from './routes/users.js';
-import categoryRoutes from './routes/categories.js';
-import revenueRoutes from './routes/revenues.js';
-import expenseRoutes from './routes/expenses.js';
-import reportRoutes from './routes/reports.js';
-import productRoutes from './routes/products.js';
-import salesRoutes from './routes/sales.js';
-import clientRoutes from './routes/clients.js';
-import taskRoutes from './routes/tasks.js';
-import commissionRoutes from './routes/commissions.js';
+import authRoutes from './routes/auth';
+import userRoutes from './routes/users';
+import categoryRoutes from './routes/categories';
+import revenueRoutes from './routes/revenues';
+import expenseRoutes from './routes/expenses';
+import reportRoutes from './routes/reports';
+import productRoutes from './routes/products';
+import salesRoutes from './routes/sales';
+import clientRoutes from './routes/clients';
+import taskRoutes from './routes/tasks';
+import commissionRoutes from './routes/commissions';
 
 // Importar logger
-import logger from './config/logger.js';
+import logger from './config/logger';
 
 // Carregar variáveis de ambiente
 dotenv.config();
+
+// Para compatibilidade ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -91,6 +96,18 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/commissions', commissionRoutes);
+
+// Servir arquivos estáticos em produção
+if (process.env.NODE_ENV === 'production') {
+  // O servidor compilado estará em dist/server/app.js
+  // Os arquivos do frontend estarão em dist/ (raiz)
+  const buildPath = path.join(__dirname, '..', '..');
+  app.use(express.static(buildPath));
+
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(buildPath, 'index.html'));
+  });
+}
 
 // Middleware de erro global
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
