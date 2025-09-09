@@ -1,8 +1,10 @@
-import express from 'express';
+// server/routes/clients.ts
+import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import { authenticateToken, requireRole } from '../middleware/auth';
-import logger from '../config/logger';
+import prisma from '../config/database.js';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth.js';
+import logger from '../config/logger.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -10,13 +12,15 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Listar clientes
-router.get('/', async (req: any, res) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 20, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const page = parseInt(String(req.query.page) || '1');
+    const limit = parseInt(String(req.query.limit) || '20');
+    const search = req.query.search ? String(req.query.search) : undefined;
+    const skip = (page - 1) * limit;
 
-    const where: any = {
-      companyId: req.user.companyId
+    const where: Prisma.ClientWhereInput = {
+      companyId: req.user!.companyId
     };
 
     if (search) {
@@ -28,7 +32,7 @@ router.get('/', async (req: any, res) => {
       ];
     }
 
-    const [clients, total] = await Promise.all([
+    const [clients, total] = await prisma.$transaction([
       prisma.client.findMany({
         where,
         include: {
@@ -38,7 +42,7 @@ router.get('/', async (req: any, res) => {
         },
         orderBy: { name: 'asc' },
         skip,
-        take: parseInt(limit)
+        take: limit
       }),
       prisma.client.count({ where })
     ]);
@@ -46,10 +50,10 @@ router.get('/', async (req: any, res) => {
     res.json({
       clients,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: page,
+        limit: limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -59,12 +63,12 @@ router.get('/', async (req: any, res) => {
 });
 
 // Buscar cliente por ID
-router.get('/:id', async (req: any, res) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const client = await prisma.client.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         sales: {
@@ -93,9 +97,9 @@ router.get('/:id', async (req: any, res) => {
 });
 
 // Buscar cliente por CPF/CNPJ
-router.get('/search/document', async (req: any, res) => {
+router.get('/search/document', async (req: AuthRequest, res: Response) => {
   try {
-    const { document } = req.query;
+    const document = req.query.document ? String(req.query.document) : undefined;
 
     if (!document) {
       return res.status(400).json({ error: 'Documento (CPF/CNPJ) é obrigatório' });
@@ -103,7 +107,7 @@ router.get('/search/document', async (req: any, res) => {
 
     const client = await prisma.client.findFirst({
       where: {
-        companyId: req.user.companyId,
+        companyId: req.user!.companyId,
         OR: [
           { cpf: document },
           { cnpj: document }
@@ -125,10 +129,10 @@ router.get('/search/document', async (req: any, res) => {
 // Criar cliente
 router.post('/', [
   body('name').notEmpty().withMessage('Nome é obrigatório'),
-  body('email').optional().isEmail().withMessage('Email inválido'),
-  body('cpf').optional().isLength({ min: 11, max: 14 }).withMessage('CPF inválido'),
-  body('cnpj').optional().isLength({ min: 14, max: 18 }).withMessage('CNPJ inválido')
-], async (req: any, res) => {
+  body('email').optional({ checkFalsy: true }).isEmail().withMessage('Email inválido'),
+  body('cpf').optional({ checkFalsy: true }).isLength({ min: 11, max: 14 }).withMessage('CPF inválido'),
+  body('cnpj').optional({ checkFalsy: true }).isLength({ min: 14, max: 18 }).withMessage('CNPJ inválido')
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -137,16 +141,15 @@ router.post('/', [
 
     const { name, email, phone, cpf, cnpj, address, city, state, zipCode, notes } = req.body;
 
-    // Verificar se CPF/CNPJ já existe
     if (cpf || cnpj) {
-      const existingClient = await prisma.client.findFirst({
-        where: {
-          OR: [
-            ...(cpf ? [{ cpf }] : []),
-            ...(cnpj ? [{ cnpj }] : [])
-          ]
-        }
-      });
+      const whereClause: Prisma.ClientWhereInput = {
+        companyId: req.user!.companyId,
+        OR: []
+      };
+      if (cpf) (whereClause.OR as Prisma.ClientWhereInput[]).push({ cpf });
+      if (cnpj) (whereClause.OR as Prisma.ClientWhereInput[]).push({ cnpj });
+
+      const existingClient = await prisma.client.findFirst({ where: whereClause });
 
       if (existingClient) {
         return res.status(400).json({ error: 'CPF/CNPJ já cadastrado' });
@@ -155,21 +158,12 @@ router.post('/', [
 
     const client = await prisma.client.create({
       data: {
-        name,
-        email,
-        phone,
-        cpf,
-        cnpj,
-        address,
-        city,
-        state,
-        zipCode,
-        notes,
-        companyId: req.user.companyId
+        name, email, phone, cpf, cnpj, address, city, state, zipCode, notes,
+        companyId: req.user!.companyId
       }
     });
 
-    logger.info('Cliente criado', { clientId: client.id, name, userId: req.user.id });
+    logger.info('Cliente criado', { clientId: client.id, name, userId: req.user!.id });
 
     res.status(201).json(client);
   } catch (error) {
@@ -181,10 +175,10 @@ router.post('/', [
 // Atualizar cliente
 router.put('/:id', [
   body('name').optional().notEmpty().withMessage('Nome não pode estar vazio'),
-  body('email').optional().isEmail().withMessage('Email inválido'),
-  body('cpf').optional().isLength({ min: 11, max: 14 }).withMessage('CPF inválido'),
-  body('cnpj').optional().isLength({ min: 14, max: 18 }).withMessage('CNPJ inválido')
-], async (req: any, res) => {
+  body('email').optional({ checkFalsy: true }).isEmail().withMessage('Email inválido'),
+  body('cpf').optional({ checkFalsy: true }).isLength({ min: 11, max: 14 }).withMessage('CPF inválido'),
+  body('cnpj').optional({ checkFalsy: true }).isLength({ min: 14, max: 18 }).withMessage('CNPJ inválido')
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -196,7 +190,7 @@ router.put('/:id', [
     const existingClient = await prisma.client.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
@@ -204,24 +198,23 @@ router.put('/:id', [
       return res.status(404).json({ error: 'Cliente não encontrado' });
     }
 
-    // Verificar conflito de CPF/CNPJ
     if (cpf || cnpj) {
-      const conflictClient = await prisma.client.findFirst({
-        where: {
-          OR: [
-            ...(cpf ? [{ cpf }] : []),
-            ...(cnpj ? [{ cnpj }] : [])
-          ],
-          id: { not: req.params.id }
-        }
-      });
+        const whereClause: Prisma.ClientWhereInput = {
+            companyId: req.user!.companyId,
+            id: { not: req.params.id },
+            OR: []
+        };
+        if (cpf) (whereClause.OR as Prisma.ClientWhereInput[]).push({ cpf });
+        if (cnpj) (whereClause.OR as Prisma.ClientWhereInput[]).push({ cnpj });
+
+      const conflictClient = await prisma.client.findFirst({ where: whereClause });
 
       if (conflictClient) {
         return res.status(400).json({ error: 'CPF/CNPJ já cadastrado para outro cliente' });
       }
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.ClientUpdateInput = {};
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email;
     if (phone !== undefined) updateData.phone = phone;
@@ -238,7 +231,7 @@ router.put('/:id', [
       data: updateData
     });
 
-    logger.info('Cliente atualizado', { clientId: client.id, userId: req.user.id });
+    logger.info('Cliente atualizado', { clientId: client.id, userId: req.user!.id });
 
     res.json(client);
   } catch (error) {
@@ -248,12 +241,12 @@ router.put('/:id', [
 });
 
 // Deletar cliente
-router.delete('/:id', requireRole(['ADMIN', 'OWNER']), async (req: any, res) => {
+router.delete('/:id', requireRole(['ADMIN', 'OWNER']), async (req: AuthRequest, res: Response) => {
   try {
     const client = await prisma.client.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         _count: {
@@ -276,7 +269,7 @@ router.delete('/:id', requireRole(['ADMIN', 'OWNER']), async (req: any, res) => 
       where: { id: req.params.id }
     });
 
-    logger.info('Cliente deletado', { clientId: req.params.id, userId: req.user.id });
+    logger.info('Cliente deletado', { clientId: req.params.id, userId: req.user!.id });
 
     res.json({ message: 'Cliente deletado com sucesso' });
   } catch (error) {

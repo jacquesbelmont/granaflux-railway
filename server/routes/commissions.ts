@@ -1,15 +1,21 @@
-import express from 'express';
-import { Request, Response } from 'express';
+// server/routes/commissions.ts
+import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import { authenticateToken, requireRole } from '../middleware/auth';
-import logger from '../config/logger';
-
-interface AuthRequest extends Request {
-  user?: any;
-}
+import prisma from '../config/database.js';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth.js';
+import logger from '../config/logger.js';
+import { Prisma, User } from '@prisma/client';
 
 const router = express.Router();
+
+// Estrutura para o relatório de comissões
+interface UserCommissionReport {
+  user: Partial<User>;
+  totalCommissions: number;
+  commissionsCount: number;
+  totalSales: number;
+  averageCommissionRate: number;
+}
 
 // Aplicar autenticação em todas as rotas
 router.use(authenticateToken);
@@ -17,61 +23,58 @@ router.use(authenticateToken);
 // Listar comissões
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 20, userId, month, year } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const page = parseInt(String(req.query.page) || '1');
+    const limit = parseInt(String(req.query.limit) || '20');
+    const userId = req.query.userId ? String(req.query.userId) : undefined;
+    const month = req.query.month ? parseInt(String(req.query.month)) : undefined;
+    const year = req.query.year ? parseInt(String(req.query.year)) : undefined;
+    const skip = (page - 1) * limit;
 
-    const where: any = {
-      companyId: req.user.companyId
+    const where: Prisma.CommissionWhereInput = {
+      companyId: req.user!.companyId
     };
 
-    // Se for funcionário comum, mostrar apenas suas comissões
-    if (req.user.role === 'USER' || req.user.role === 'CASHIER') {
-      where.userId = req.user.id;
+    if (req.user!.role === 'USER' || req.user!.role === 'CASHIER') {
+      where.userId = req.user!.id;
     } else if (userId) {
       where.userId = userId;
     }
 
-    // Filtro por mês/ano
     if (month && year) {
-      const startDate = new Date(Number(year), Number(month) - 1, 1);
-      const endDate = new Date(Number(year), Number(month), 0);
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59);
       where.createdAt = { gte: startDate, lte: endDate };
     }
 
-    const [commissions, total] = await Promise.all([
+    const [commissions, total] = await prisma.$transaction([
       prisma.commission.findMany({
         where,
         include: {
           user: { select: { name: true, email: true } },
           sale: {
-            select: {
-              id: true,
-              clientName: true,
-              finalTotal: true,
-              createdAt: true
-            }
+            select: { id: true, clientName: true, finalTotal: true, createdAt: true }
           }
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: parseInt(limit)
+        take: limit
       }),
       prisma.commission.count({ where })
     ]);
 
-    const totalCommissions = commissions.reduce((sum, comm) => sum + Number(comm.amount), 0);
+    const totalCommissionsValue = commissions.reduce((sum, comm) => sum + Number(comm.amount), 0);
 
     res.json({
       commissions,
       summary: {
-        totalCommissions,
-        commissionsCount: commissions.length
+        totalCommissions: totalCommissionsValue,
+        commissionsCount: total
       },
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page,
+        limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -83,29 +86,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // Relatório de comissões por funcionário
 router.get('/reports/by-user', requireRole(['ADMIN', 'OWNER']), async (req: AuthRequest, res: Response) => {
   try {
-    const { month, year } = req.query;
+    const month = req.query.month ? parseInt(String(req.query.month)) : undefined;
+    const year = req.query.year ? parseInt(String(req.query.year)) : undefined;
     
-    let dateFilter: any = {};
+    const where: Prisma.CommissionWhereInput = {
+      companyId: req.user!.companyId,
+    };
     
     if (month && year) {
-      const start = new Date(Number(year), Number(month) - 1, 1);
-      const end = new Date(Number(year), Number(month), 0);
-      dateFilter = { gte: start, lte: end };
+      const start = new Date(year, month - 1, 1);
+      const end = new Date(year, month, 0, 23, 59, 59);
+      where.createdAt = { gte: start, lte: end };
     }
 
     const commissions = await prisma.commission.findMany({
-      where: {
-        companyId: req.user.companyId,
-        ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter })
-      },
+      where,
       include: {
         user: { select: { id: true, name: true, email: true, role: true } },
         sale: { select: { finalTotal: true } }
       }
     });
 
-    // Agrupar por funcionário
-    const commissionsByUser = commissions.reduce((acc: any, commission) => {
+    const commissionsByUser = commissions.reduce((acc: Record<string, UserCommissionReport>, commission) => {
       const userId = commission.user.id;
       
       if (!acc[userId]) {
@@ -125,8 +127,7 @@ router.get('/reports/by-user', requireRole(['ADMIN', 'OWNER']), async (req: Auth
       return acc;
     }, {});
 
-    // Calcular taxa média de comissão
-    Object.values(commissionsByUser).forEach((stats: any) => {
+    Object.values(commissionsByUser).forEach((stats) => {
       if (stats.totalSales > 0) {
         stats.averageCommissionRate = (stats.totalCommissions / stats.totalSales) * 100;
       }
@@ -141,13 +142,7 @@ router.get('/reports/by-user', requireRole(['ADMIN', 'OWNER']), async (req: Auth
 
 // Configurar percentual de comissão para um funcionário
 router.put('/config/:userId', requireRole(['ADMIN', 'OWNER']), [
-  body('percentage').isNumeric().withMessage('Percentual deve ser numérico'),
-  body('percentage').custom(value => {
-    if (value < 0 || value > 50) {
-      throw new Error('Percentual deve estar entre 0% e 50%');
-    }
-    return true;
-  })
+  body('percentage').isFloat({ min: 0, max: 50 }).withMessage('Percentual deve estar entre 0 e 50')
 ], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
@@ -156,32 +151,33 @@ router.put('/config/:userId', requireRole(['ADMIN', 'OWNER']), [
     }
 
     const { percentage } = req.body;
-    const userId = req.params.userId;
+    const { userId } = req.params;
 
-    // Verificar se o usuário existe e pertence à empresa
     const user = await prisma.user.findFirst({
       where: {
         id: userId,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
     if (!user) {
       return res.status(404).json({ error: 'Funcionário não encontrado' });
     }
-
-    // Por enquanto, vamos armazenar a configuração de comissão em uma tabela separada
-    // ou usar um campo no usuário. Para simplicidade, vamos retornar sucesso
-    // e aplicar nas próximas vendas
+    
+    // Supondo que você adicionará um campo `commissionPercentage` ao modelo User
+    // const updatedUser = await prisma.user.update({
+    //   where: { id: userId },
+    //   data: { commissionPercentage: parseFloat(percentage) }
+    // });
 
     logger.info('Percentual de comissão configurado', { 
       userId, 
       percentage, 
-      configuredBy: req.user.id 
+      configuredBy: req.user!.id 
     });
 
     res.json({ 
-      message: 'Percentual de comissão configurado com sucesso',
+      message: 'Percentual de comissão configurado com sucesso (funcionalidade a ser implementada)',
       userId,
       percentage: parseFloat(percentage)
     });

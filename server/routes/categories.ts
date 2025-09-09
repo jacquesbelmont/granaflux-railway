@@ -1,8 +1,10 @@
-import express from 'express';
+// server/routes/categories.ts
+import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import { authenticateToken } from '../middleware/auth';
-import logger from '../config/logger';
+import prisma from '../config/database.js';
+import { authenticateToken, AuthRequest } from '../middleware/auth.js';
+import logger from '../config/logger.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -10,16 +12,16 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Listar categorias
-router.get('/', async (req: any, res) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const { type } = req.query;
 
-    const where: any = {
-      companyId: req.user.companyId
+    const where: Prisma.CategoryWhereInput = {
+      companyId: req.user!.companyId
     };
 
-    if (type && ['REVENUE', 'EXPENSE', 'BOTH'].includes(type)) {
-      where.type = type;
+    if (type && ['REVENUE', 'EXPENSE', 'BOTH'].includes(String(type))) {
+      where.type = String(type) as 'REVENUE' | 'EXPENSE' | 'BOTH';
     }
 
     const categories = await prisma.category.findMany({
@@ -43,12 +45,12 @@ router.get('/', async (req: any, res) => {
 });
 
 // Buscar categoria por ID
-router.get('/:id', async (req: any, res) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const category = await prisma.category.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         _count: {
@@ -76,7 +78,7 @@ router.post('/', [
   body('name').notEmpty().withMessage('Nome é obrigatório'),
   body('type').isIn(['REVENUE', 'EXPENSE', 'BOTH']).withMessage('Tipo deve ser REVENUE, EXPENSE ou BOTH'),
   body('color').optional().matches(/^#[0-9A-F]{6}$/i).withMessage('Cor deve estar no formato hexadecimal (#RRGGBB)')
-], async (req: any, res) => {
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -85,11 +87,10 @@ router.post('/', [
 
     const { name, description, type, color } = req.body;
 
-    // Verificar se já existe uma categoria com o mesmo nome na empresa
     const existingCategory = await prisma.category.findFirst({
       where: {
         name,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
@@ -103,7 +104,7 @@ router.post('/', [
         description,
         type,
         color: color || '#3B82F6',
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         _count: {
@@ -115,7 +116,7 @@ router.post('/', [
       }
     });
 
-    logger.info('Categoria criada', { categoryId: category.id, name, userId: req.user.id });
+    logger.info('Categoria criada', { categoryId: category.id, name, userId: req.user!.id });
 
     res.status(201).json(category);
   } catch (error) {
@@ -129,7 +130,7 @@ router.put('/:id', [
   body('name').optional().notEmpty().withMessage('Nome não pode estar vazio'),
   body('type').optional().isIn(['REVENUE', 'EXPENSE', 'BOTH']).withMessage('Tipo deve ser REVENUE, EXPENSE ou BOTH'),
   body('color').optional().matches(/^#[0-9A-F]{6}$/i).withMessage('Cor deve estar no formato hexadecimal (#RRGGBB)')
-], async (req: any, res) => {
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -138,11 +139,10 @@ router.put('/:id', [
 
     const { name, description, type, color } = req.body;
 
-    // Verificar se a categoria existe e pertence à empresa
     const existingCategory = await prisma.category.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
@@ -150,12 +150,11 @@ router.put('/:id', [
       return res.status(404).json({ error: 'Categoria não encontrada' });
     }
 
-    // Se o nome foi alterado, verificar se não conflita com outra categoria
     if (name && name !== existingCategory.name) {
       const nameConflict = await prisma.category.findFirst({
         where: {
           name,
-          companyId: req.user.companyId,
+          companyId: req.user!.companyId,
           id: { not: req.params.id }
         }
       });
@@ -165,7 +164,7 @@ router.put('/:id', [
       }
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.CategoryUpdateInput = {};
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (type !== undefined) updateData.type = type;
@@ -184,7 +183,7 @@ router.put('/:id', [
       }
     });
 
-    logger.info('Categoria atualizada', { categoryId: category.id, userId: req.user.id });
+    logger.info('Categoria atualizada', { categoryId: category.id, userId: req.user!.id });
 
     res.json(category);
   } catch (error) {
@@ -194,12 +193,12 @@ router.put('/:id', [
 });
 
 // Deletar categoria
-router.delete('/:id', async (req: any, res) => {
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const category = await prisma.category.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         _count: {
@@ -215,7 +214,6 @@ router.delete('/:id', async (req: any, res) => {
       return res.status(404).json({ error: 'Categoria não encontrada' });
     }
 
-    // Verificar se a categoria está sendo usada
     if (category._count.revenues > 0 || category._count.expenses > 0) {
       return res.status(400).json({ 
         error: 'Não é possível deletar uma categoria que possui receitas ou despesas associadas' 
@@ -226,7 +224,7 @@ router.delete('/:id', async (req: any, res) => {
       where: { id: req.params.id }
     });
 
-    logger.info('Categoria deletada', { categoryId: req.params.id, userId: req.user.id });
+    logger.info('Categoria deletada', { categoryId: req.params.id, userId: req.user!.id });
 
     res.json({ message: 'Categoria deletada com sucesso' });
   } catch (error) {

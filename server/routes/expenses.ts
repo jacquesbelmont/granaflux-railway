@@ -1,8 +1,10 @@
-import express from 'express';
+// server/routes/expenses.ts
+import express, { Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import { authenticateToken } from '../middleware/auth';
-import logger from '../config/logger';
+import prisma from '../config/database.js';
+import { authenticateToken, AuthRequest } from '../middleware/auth.js';
+import logger from '../config/logger.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -10,13 +12,17 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Listar despesas
-router.get('/', async (req: any, res) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 10, categoryId, startDate, endDate } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const page = parseInt(String(req.query.page) || '1');
+    const limit = parseInt(String(req.query.limit) || '10');
+    const categoryId = req.query.categoryId ? String(req.query.categoryId) : undefined;
+    const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : undefined;
+    const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : undefined;
+    const skip = (page - 1) * limit;
 
-    const where: any = {
-      companyId: req.user.companyId
+    const where: Prisma.ExpenseWhereInput = {
+      companyId: req.user!.companyId
     };
 
     if (categoryId) {
@@ -25,11 +31,11 @@ router.get('/', async (req: any, res) => {
 
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) where.date.gte = new Date(startDate);
-      if (endDate) where.date.lte = new Date(endDate);
+      if (startDate) where.date.gte = startDate;
+      if (endDate) where.date.lte = endDate;
     }
 
-    const [expenses, total] = await Promise.all([
+    const [expenses, total] = await prisma.$transaction([
       prisma.expense.findMany({
         where,
         include: {
@@ -38,24 +44,24 @@ router.get('/', async (req: any, res) => {
         },
         orderBy: { date: 'desc' },
         skip,
-        take: parseInt(limit)
+        take: limit
       }),
       prisma.expense.count({ where })
     ]);
 
-    logger.info('Despesas listadas', { 
-      companyId: req.user.companyId, 
-      count: expenses.length, 
-      total 
+    logger.info('Despesas listadas', {
+      companyId: req.user!.companyId,
+      count: expenses.length,
+      total
     });
 
     res.json({
       expenses,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: page,
+        limit: limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -65,12 +71,12 @@ router.get('/', async (req: any, res) => {
 });
 
 // Buscar despesa por ID
-router.get('/:id', async (req: any, res) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const expense = await prisma.expense.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       include: {
         category: true,
@@ -95,7 +101,7 @@ router.post('/', [
   body('amount').isNumeric().withMessage('Valor deve ser numérico'),
   body('date').isISO8601().withMessage('Data inválida'),
   body('categoryId').notEmpty().withMessage('Categoria é obrigatória')
-], async (req: any, res) => {
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -104,11 +110,10 @@ router.post('/', [
 
     const { description, amount, date, categoryId, notes, attachment } = req.body;
 
-    // Verificar se a categoria existe e pertence à empresa
     const category = await prisma.category.findFirst({
       where: {
         id: categoryId,
-        companyId: req.user.companyId,
+        companyId: req.user!.companyId,
         type: { in: ['EXPENSE', 'BOTH'] }
       }
     });
@@ -123,8 +128,8 @@ router.post('/', [
         amount: parseFloat(amount),
         date: new Date(date),
         categoryId,
-        companyId: req.user.companyId,
-        userId: req.user.id,
+        companyId: req.user!.companyId,
+        userId: req.user!.id,
         notes,
         attachment
       },
@@ -134,10 +139,10 @@ router.post('/', [
       }
     });
 
-    logger.info('Despesa criada', { 
-      expenseId: expense.id, 
-      amount: expense.amount, 
-      userId: req.user.id 
+    logger.info('Despesa criada', {
+      expenseId: expense.id,
+      amount: expense.amount,
+      userId: req.user!.id
     });
 
     res.status(201).json(expense);
@@ -153,7 +158,7 @@ router.put('/:id', [
   body('amount').optional().isNumeric().withMessage('Valor deve ser numérico'),
   body('date').optional().isISO8601().withMessage('Data inválida'),
   body('categoryId').optional().notEmpty().withMessage('Categoria não pode estar vazia')
-], async (req: any, res) => {
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -162,11 +167,10 @@ router.put('/:id', [
 
     const { description, amount, date, categoryId, notes, attachment } = req.body;
 
-    // Verificar se a despesa existe e pertence à empresa
     const existingExpense = await prisma.expense.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
@@ -174,12 +178,11 @@ router.put('/:id', [
       return res.status(404).json({ error: 'Despesa não encontrada' });
     }
 
-    // Se categoryId foi fornecido, verificar se é válido
     if (categoryId) {
       const category = await prisma.category.findFirst({
         where: {
           id: categoryId,
-          companyId: req.user.companyId,
+          companyId: req.user!.companyId,
           type: { in: ['EXPENSE', 'BOTH'] }
         }
       });
@@ -189,7 +192,7 @@ router.put('/:id', [
       }
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.ExpenseUpdateInput = {};
     if (description !== undefined) updateData.description = description;
     if (amount !== undefined) updateData.amount = parseFloat(amount);
     if (date !== undefined) updateData.date = new Date(date);
@@ -206,7 +209,7 @@ router.put('/:id', [
       }
     });
 
-    logger.info('Despesa atualizada', { expenseId: expense.id, userId: req.user.id });
+    logger.info('Despesa atualizada', { expenseId: expense.id, userId: req.user!.id });
 
     res.json(expense);
   } catch (error) {
@@ -216,12 +219,12 @@ router.put('/:id', [
 });
 
 // Deletar despesa
-router.delete('/:id', async (req: any, res) => {
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const expense = await prisma.expense.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       }
     });
 
@@ -233,7 +236,7 @@ router.delete('/:id', async (req: any, res) => {
       where: { id: req.params.id }
     });
 
-    logger.info('Despesa deletada', { expenseId: req.params.id, userId: req.user.id });
+    logger.info('Despesa deletada', { expenseId: req.params.id, userId: req.user!.id });
 
     res.json({ message: 'Despesa deletada com sucesso' });
   } catch (error) {

@@ -1,9 +1,11 @@
-import express from 'express';
+// server/routes/users.ts
+import express, { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { body, validationResult } from 'express-validator';
-import prisma from '../config/database';
-import { authenticateToken, requireRole } from '../middleware/auth';
-import logger from '../config/logger';
+import prisma from '../config/database.js';
+import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth.js';
+import logger from '../config/logger.js';
+import { Prisma } from '@prisma/client';
 
 const router = express.Router();
 
@@ -11,11 +13,11 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Listar usuários da empresa
-router.get('/', requireRole(['ADMIN', 'OWNER']), async (req: any, res) => {
+router.get('/', requireRole(['ADMIN', 'OWNER']), async (req: AuthRequest, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       where: {
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       select: {
         id: true,
@@ -36,26 +38,17 @@ router.get('/', requireRole(['ADMIN', 'OWNER']), async (req: any, res) => {
 });
 
 // Buscar usuário por ID
-router.get('/:id', async (req: any, res) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findFirst({
       where: {
         id: req.params.id,
-        companyId: req.user.companyId
+        companyId: req.user!.companyId
       },
       select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
+        id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true,
         company: {
-          select: {
-            id: true,
-            name: true,
-            cnpj: true
-          }
+          select: { id: true, name: true, cnpj: true, email: true, phone: true, address: true, city: true, state: true, zipCode: true }
         }
       }
     });
@@ -72,29 +65,14 @@ router.get('/:id', async (req: any, res) => {
 });
 
 // Perfil do usuário logado
-router.get('/me/profile', async (req: any, res) => {
+router.get('/me/profile', async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
+      where: { id: req.user!.id },
       select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
+        id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true,
         company: {
-          select: {
-            id: true,
-            name: true,
-            cnpj: true,
-            email: true,
-            phone: true,
-            address: true,
-            city: true,
-            state: true,
-            zipCode: true
-          }
+          select: { id: true, name: true, cnpj: true, email: true, phone: true, address: true, city: true, state: true, zipCode: true }
         }
       }
     });
@@ -111,8 +89,8 @@ router.post('/', requireRole(['ADMIN', 'OWNER']), [
   body('email').isEmail().withMessage('Email inválido'),
   body('password').isLength({ min: 6 }).withMessage('Senha deve ter pelo menos 6 caracteres'),
   body('name').notEmpty().withMessage('Nome é obrigatório'),
-  body('role').isIn(['USER', 'ADMIN']).withMessage('Role deve ser USER ou ADMIN')
-], async (req: any, res) => {
+  body('role').isIn(['USER', 'ADMIN', 'CASHIER']).withMessage('Role deve ser USER, CASHIER ou ADMIN')
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -121,37 +99,24 @@ router.post('/', requireRole(['ADMIN', 'OWNER']), [
 
     const { email, password, name, role } = req.body;
 
-    // Verificar se usuário já existe
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ error: 'Email já está em uso' });
     }
 
-    // Hash da senha
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
       data: {
-        email,
-        password: hashedPassword,
-        name,
-        role,
-        companyId: req.user.companyId
+        email, password: hashedPassword, name, role,
+        companyId: req.user!.companyId
       },
       select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true
+        id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true
       }
     });
 
-    logger.info('Usuário criado', { userId: user.id, email, createdBy: req.user.id });
+    logger.info('Usuário criado', { userId: user.id, email, createdBy: req.user!.id });
 
     res.status(201).json(user);
   } catch (error) {
@@ -164,8 +129,8 @@ router.post('/', requireRole(['ADMIN', 'OWNER']), [
 router.put('/:id', [
   body('email').optional().isEmail().withMessage('Email inválido'),
   body('name').optional().notEmpty().withMessage('Nome não pode estar vazio'),
-  body('role').optional().isIn(['USER', 'ADMIN']).withMessage('Role deve ser USER ou ADMIN')
-], async (req: any, res) => {
+  body('role').optional().isIn(['USER', 'ADMIN', 'CASHIER']).withMessage('Role deve ser USER, CASHIER ou ADMIN')
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -175,43 +140,30 @@ router.put('/:id', [
     const { email, name, role } = req.body;
     const targetUserId = req.params.id;
 
-    // Verificar se o usuário pode editar este perfil
-    const canEdit = req.user.id === targetUserId || 
-                   ['ADMIN', 'OWNER'].includes(req.user.role);
-
+    const canEdit = req.user!.id === targetUserId || ['ADMIN', 'OWNER'].includes(req.user!.role);
     if (!canEdit) {
       return res.status(403).json({ error: 'Acesso negado' });
     }
 
-    // Verificar se o usuário existe e pertence à empresa
     const existingUser = await prisma.user.findFirst({
-      where: {
-        id: targetUserId,
-        companyId: req.user.companyId
-      }
+      where: { id: targetUserId, companyId: req.user!.companyId }
     });
-
     if (!existingUser) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    // Apenas OWNER pode alterar role de outros usuários
-    if (role && req.user.id !== targetUserId && req.user.role !== 'OWNER') {
+    if (role && req.user!.id !== targetUserId && req.user!.role !== 'OWNER') {
       return res.status(403).json({ error: 'Apenas o proprietário pode alterar roles' });
     }
 
-    // Se o email foi alterado, verificar se não conflita
     if (email && email !== existingUser.email) {
-      const emailConflict = await prisma.user.findUnique({
-        where: { email }
-      });
-
+      const emailConflict = await prisma.user.findUnique({ where: { email } });
       if (emailConflict) {
         return res.status(400).json({ error: 'Email já está em uso' });
       }
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.UserUpdateInput = {};
     if (email !== undefined) updateData.email = email;
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;
@@ -220,16 +172,11 @@ router.put('/:id', [
       where: { id: targetUserId },
       data: updateData,
       select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true
+        id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true
       }
     });
 
-    logger.info('Usuário atualizado', { userId: user.id, updatedBy: req.user.id });
+    logger.info('Usuário atualizado', { userId: user.id, updatedBy: req.user!.id });
 
     res.json(user);
   } catch (error) {
@@ -242,7 +189,7 @@ router.put('/:id', [
 router.put('/:id/password', [
   body('currentPassword').notEmpty().withMessage('Senha atual é obrigatória'),
   body('newPassword').isLength({ min: 6 }).withMessage('Nova senha deve ter pelo menos 6 caracteres')
-], async (req: any, res) => {
+], async (req: AuthRequest, res: Response) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -252,34 +199,25 @@ router.put('/:id/password', [
     const { currentPassword, newPassword } = req.body;
     const targetUserId = req.params.id;
 
-    // Verificar se o usuário pode alterar esta senha
-    const canEdit = req.user.id === targetUserId || req.user.role === 'OWNER';
-
+    const canEdit = req.user!.id === targetUserId || req.user!.role === 'OWNER';
     if (!canEdit) {
       return res.status(403).json({ error: 'Acesso negado' });
     }
 
-    // Buscar usuário
     const user = await prisma.user.findFirst({
-      where: {
-        id: targetUserId,
-        companyId: req.user.companyId
-      }
+      where: { id: targetUserId, companyId: req.user!.companyId }
     });
-
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    // Se não for o próprio usuário, OWNER pode alterar sem senha atual
-    if (req.user.id === targetUserId) {
+    if (req.user!.id === targetUserId) {
       const isValidPassword = await bcrypt.compare(currentPassword, user.password);
       if (!isValidPassword) {
         return res.status(400).json({ error: 'Senha atual incorreta' });
       }
     }
 
-    // Hash da nova senha
     const hashedPassword = await bcrypt.hash(newPassword, 12);
 
     await prisma.user.update({
@@ -287,7 +225,7 @@ router.put('/:id/password', [
       data: { password: hashedPassword }
     });
 
-    logger.info('Senha alterada', { userId: targetUserId, changedBy: req.user.id });
+    logger.info('Senha alterada', { userId: targetUserId, changedBy: req.user!.id });
 
     res.json({ message: 'Senha alterada com sucesso' });
   } catch (error) {
@@ -297,22 +235,17 @@ router.put('/:id/password', [
 });
 
 // Deletar usuário (apenas OWNER)
-router.delete('/:id', requireRole(['OWNER']), async (req: any, res) => {
+router.delete('/:id', requireRole(['OWNER']), async (req: AuthRequest, res: Response) => {
   try {
     const targetUserId = req.params.id;
 
-    // Não permitir que o OWNER delete a si mesmo
-    if (req.user.id === targetUserId) {
+    if (req.user!.id === targetUserId) {
       return res.status(400).json({ error: 'Você não pode deletar sua própria conta' });
     }
 
     const user = await prisma.user.findFirst({
-      where: {
-        id: targetUserId,
-        companyId: req.user.companyId
-      }
+      where: { id: targetUserId, companyId: req.user!.companyId }
     });
-
     if (!user) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
@@ -321,7 +254,7 @@ router.delete('/:id', requireRole(['OWNER']), async (req: any, res) => {
       where: { id: targetUserId }
     });
 
-    logger.info('Usuário deletado', { userId: targetUserId, deletedBy: req.user.id });
+    logger.info('Usuário deletado', { userId: targetUserId, deletedBy: req.user!.id });
 
     res.json({ message: 'Usuário deletado com sucesso' });
   } catch (error) {
