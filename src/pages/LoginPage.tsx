@@ -135,35 +135,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ setIsLoggedIn }) => {
             </div>
           </form>
 
-          {/* Demo credentials info */}
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <h4 className="text-sm font-medium text-blue-900 mb-3">Credenciais de Demonstração:</h4>
-            <div className="text-sm text-blue-700">
-              <div className="mb-2">
-                <strong>👑 Proprietário:</strong><br/>
-                Email: admin@granaflux.com<br/>
-                Senha: admin123
-              </div>
-              <div className="mb-2">
-                <strong>👨‍💼 Gerente:</strong><br/>
-                Email: gerente@granaflux.com<br/>
-                Senha: gerente123
-              </div>
-              <div className="mb-2">
-                <strong>🏪 Operador de Caixa:</strong><br/>
-                Email: caixa@granaflux.com<br/>
-                Senha: caixa123
-              </div>
-              <div>
-                <strong>👷 Funcionário:</strong><br/>
-                Email: funcionario@granaflux.com<br/>
-                Senha: func123
-              </div>
-            </div>
-            <div className="mt-3 p-2 bg-yellow-100 rounded text-xs text-yellow-800">
-              <strong>Nota:</strong> Execute <code>npm run setup</code> para criar todos os usuários
-            </div>
-          </div>
+        
         </div>
       </div>
     </div>

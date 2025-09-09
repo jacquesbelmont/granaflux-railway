@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, DollarSign, TrendingUp, Users, Calendar, X } from 'lucide-react';
+import { ShoppingCart, Plus, DollarSign, TrendingUp, Users, Calendar } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { Sale, Product, Client } from '../../types/api';
 
@@ -12,13 +12,6 @@ const SalesManagement: React.FC<SalesManagementProps> = ({ isLoading = false }) 
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [showNewSaleModal, setShowNewSaleModal] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('today');
-  const [newSale, setNewSale] = useState({
-    clientName: '',
-    items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
-    paymentMethod: 'CASH',
-    discount: 0,
-    notes: ''
-  });
 
   useEffect(() => {
     loadSales();
@@ -55,58 +48,6 @@ const SalesManagement: React.FC<SalesManagementProps> = ({ isLoading = false }) 
     } finally {
       setIsLoadingData(false);
     }
-  };
-
-  const handleCreateSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await apiService.createSale({
-        clientName: newSale.clientName,
-        items: newSale.items.map(item => ({
-          itemName: item.itemName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice
-        })),
-        paymentMethod: newSale.paymentMethod,
-        discount: newSale.discount,
-        notes: newSale.notes || undefined
-      });
-      
-      setNewSale({
-        clientName: '',
-        items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
-        paymentMethod: 'CASH',
-        discount: 0,
-        notes: ''
-      });
-      setShowNewSaleModal(false);
-      loadSales();
-    } catch (error) {
-      console.error('Erro ao criar venda:', error);
-    }
-  };
-
-  const addItem = () => {
-    setNewSale({
-      ...newSale,
-      items: [...newSale.items, { itemName: '', quantity: 1, unitPrice: 0 }]
-    });
-  };
-
-  const removeItem = (index: number) => {
-    if (newSale.items.length > 1) {
-      setNewSale({
-        ...newSale,
-        items: newSale.items.filter((_, i) => i !== index)
-      });
-    }
-  };
-
-  const updateItem = (index: number, field: string, value: any) => {
-    const updatedItems = newSale.items.map((item, i) => 
-      i === index ? { ...item, [field]: value } : item
-    );
-    setNewSale({ ...newSale, items: updatedItems });
   };
 
   const formatCurrency = (value: number) => {
@@ -314,187 +255,6 @@ const SalesManagement: React.FC<SalesManagementProps> = ({ isLoading = false }) 
              selectedPeriod === 'week' ? 'Nenhuma venda na última semana.' :
              'Nenhuma venda neste mês.'}
           </p>
-        </div>
-      )}
-
-      {/* New Sale Modal */}
-      {showNewSaleModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Nova Venda</h2>
-              <button
-                onClick={() => setShowNewSaleModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateSale} className="p-6 space-y-6">
-              {/* Client Info */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nome do Cliente *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newSale.clientName}
-                  onChange={(e) => setNewSale({ ...newSale, clientName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nome do cliente"
-                />
-              </div>
-
-              {/* Items */}
-              <div>
-                <div className="flex justify-between items-center mb-4">
-                  <label className="block text-sm font-medium text-gray-700">
-                    Itens da Venda *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addItem}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 flex items-center gap-1"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Adicionar Item
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {newSale.items.map((item, index) => (
-                    <div key={index} className="grid grid-cols-12 gap-2 items-end">
-                      <div className="col-span-5">
-                        <input
-                          type="text"
-                          required
-                          value={item.itemName}
-                          onChange={(e) => updateItem(index, 'itemName', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Nome do item"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="number"
-                          min="1"
-                          required
-                          value={item.quantity}
-                          onChange={(e) => updateItem(index, 'quantity', Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Qtd"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          required
-                          value={item.unitPrice}
-                          onChange={(e) => updateItem(index, 'unitPrice', Number(e.target.value))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Preço"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        {newSale.items.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeItem(index)}
-                            className="w-full px-2 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
-                          >
-                            Remover
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Payment and Discount */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Forma de Pagamento *
-                  </label>
-                  <select
-                    required
-                    value={newSale.paymentMethod}
-                    onChange={(e) => setNewSale({ ...newSale, paymentMethod: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="CASH">Dinheiro</option>
-                    <option value="CREDIT_CARD">Cartão de Crédito</option>
-                    <option value="DEBIT_CARD">Cartão de Débito</option>
-                    <option value="PIX">PIX</option>
-                    <option value="BANK_TRANSFER">Transferência</option>
-                    <option value="CHECK">Cheque</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Desconto (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={newSale.discount}
-                    onChange={(e) => setNewSale({ ...newSale, discount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0,00"
-                  />
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Observações
-                </label>
-                <textarea
-                  value={newSale.notes}
-                  onChange={(e) => setNewSale({ ...newSale, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={3}
-                  placeholder="Observações sobre a venda"
-                />
-              </div>
-
-              {/* Total */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex justify-between items-center">
-                  <span className="text-lg font-medium text-gray-700">Total da Venda:</span>
-                  <span className="text-2xl font-bold text-green-600">
-                    {formatCurrency(
-                      newSale.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0) - newSale.discount
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowNewSaleModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Registrar Venda
-                </button>
-              </div>
-            </form>
-          </div>
         </div>
       )}
     </div>

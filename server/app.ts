@@ -6,7 +6,6 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 
 // Importar rotas
 import authRoutes from './routes/auth.js';
@@ -26,10 +25,6 @@ import logger from './config/logger.js';
 
 // Carregar variáveis de ambiente
 dotenv.config();
-
-// Para compatibilidade com ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -83,21 +78,6 @@ app.get('/health', (req, res) => {
 
 // Aplicar rate limiting apenas nas rotas da API
 app.use('/api', limiter);
-
-// Servir arquivos estáticos do frontend em produção
-if (process.env.NODE_ENV === 'production') {
-  const frontendPath = path.join(__dirname, '..', 'dist');
-  app.use(express.static(frontendPath));
-  
-  // Catch-all handler: enviar index.html para rotas do frontend
-  app.get('*', (req, res, next) => {
-    // Pular rotas da API
-    if (req.path.startsWith('/api/') || req.path.startsWith('/health')) {
-      return next();
-    }
-    res.sendFile(path.join(frontendPath, 'index.html'));
-  });
-}
 
 // Rotas da API
 app.use('/api/auth', authRoutes);
